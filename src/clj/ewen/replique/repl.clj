@@ -4,10 +4,6 @@
   (:import (java.io StringReader)
            (clojure.lang LineNumberingPushbackReader)))
 
-(defn repl-read [_ request-exit]
-  (prn "e")
-  request-exit)
-
 (comment
 
   (cljs.repl/repl (repl-env)

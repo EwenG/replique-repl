@@ -18,22 +18,6 @@
 
 
 
-
-
-
-(deftask nrepl []
-         (let [start (delay (start-server :bind "127.0.0.1"
-                                          :port 57794
-                                          #_:transport-fn #_multi-transport
-                                          :handler (default-handler (@#'boot.repl-server/wrap-init-ns 'boot.user))))]
-           (with-pre-wrap fileset
-                          @start
-                          (println "nRepl server started")
-                          fileset)))
-
-(deftask run []
-         (comp (checkouts) (gen-pom) (nrepl) (wait)))
-
 (deftask install-jar []
          (comp (add-src) (pom) (jar) (install)))
 
