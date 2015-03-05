@@ -8,9 +8,7 @@
 
   (cljs.repl/repl (repl-env)
                   :read (let [reader (LineNumberingPushbackReader. (StringReader. "\"e\""))]
-                          #_#(read reader false %2)
-                          (fn [_ request-exit]
-                            request-exit))
+                          #(read reader false %2))
                   :prompt (fn [])
                   :need-prompt (constantly false))
   )

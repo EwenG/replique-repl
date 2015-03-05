@@ -5,76 +5,37 @@
             [clojure.string :as string]
             [cljs.util :as util]
             [cljs.env :as env]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [cljs.repl.browser :as benv]))
 
-(defn env-setup [opts]
-  (println "setup"))
+(defn env-setup [repl-env opts]
+  (println "setup")
+  (benv/setup repl-env opts))
 
 (defn env-evaluate [js]
-  (println "evaluate"))
+  (println "evaluate")
+  (benv/browser-eval js))
 
-(defn env-load [provides url]
-  (println "load"))
+(defn env-load [this provides url]
+  (println "load")
+  (benv/load-javascript this provides url))
 
 (defn env-tear-down []
-  (println "tear-down"))
+  (println "tear-down")
+  (reset! benv/browser-state {}))
 
 (defrecord BrowserEnv []
   repl/IJavaScriptEnv
   (-setup [this opts]
-    (env-setup opts))
+    (env-setup this opts))
   (-evaluate [_ _ _ js]
     (env-evaluate js))
   (-load [this provides url]
-    (env-load provides url))
+    (env-load this provides url))
   (-tear-down [_]
     (env-tear-down)))
 
-(def loaded-libs (atom #{}))
 
-(def preloaded-libs (atom #{}))
-
-(defn- provides-and-requires
-  "Return a flat list of all provided and required namespaces from a
-  sequence of IJavaScripts."
-  [deps]
-  (flatten (mapcat (juxt :provides :requires) deps)))
-
-(defn- always-preload
-  "Return a list of all namespaces which are always loaded into the browser
-  when using a browser-connected REPL.
-  Uses the working-dir (see repl-env) to output intermediate compilation."
-  [& [{:keys [working-dir]}]]
-  (let [opts (if working-dir {:output-dir working-dir}
-                             {})
-        cljs (provides-and-requires
-               (cljsc/cljs-dependencies opts ["clojure.browser.repl"]))
-        goog (provides-and-requires
-               (cljsc/js-dependencies opts cljs))]
-    (disj (set (concat cljs goog)) nil)))
-
-(defonce browser-state
-         (atom {:return-value-fn nil
-                :client-js nil}))
-
-(defn compile-client-js [opts]
-  (cljsc/build
-    '[(ns clojure.browser.repl.client
-        (:require [goog.events :as event]
-                  [clojure.browser.repl :as repl]))
-      (defn start [url]
-        (event/listen js/window
-                      "load"
-                      (fn []
-                        (repl/start-evaluator url))))]
-    {:optimizations (:optimizations opts)
-     :output-dir (:working-dir opts)}))
-
-(defn create-client-js-file [opts file-path]
-  (let [file (io/file file-path)]
-    (when (not (.exists file))
-      (spit file (compile-client-js opts)))
-    file))
 
 
 (defn repl-env [& {:as opts}]
@@ -98,16 +59,16 @@
                      :source-map     false}
                     opts)]
     (cljs.env/with-compiler-env compiler-env
-                                (reset! preloaded-libs
+                                (reset! benv/preloaded-libs
                                         (set (concat
-                                               (always-preload opts)
+                                               (@#'benv/always-preload opts)
                                                (map str (:preloaded-libs opts)))))
-                                (reset! loaded-libs @preloaded-libs)
+                                (reset! benv/loaded-libs @benv/preloaded-libs)
                                 (println "Compiling client js ...")
-                                (swap! browser-state
+                                (swap! benv/browser-state
                                        (fn [old]
                                          (assoc old :client-js
-                                                    (create-client-js-file
+                                                    (benv/create-client-js-file
                                                       opts
                                                       (io/file (:working-dir opts) "client.js")))))
                                 (println "Waiting for browser to connect ...")
