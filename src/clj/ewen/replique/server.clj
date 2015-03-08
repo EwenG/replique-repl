@@ -6,7 +6,8 @@
             [cljs.repl.browser :as benv]
             [clojure.java.io :as io]
             [cljs.closure :as cljsc]
-            [ewen.replique.browser-env :as rbenv]))
+            [ewen.replique.browser-env :as rbenv]
+            [clojure.tools.reader.edn :as edn]))
 
 
 (defn send-repl-index
@@ -114,9 +115,40 @@
                                                                 '[(ns cljs.user)
                                                                   (set! *print-fn* clojure.browser.repl/repl-print)] {})))))
 
+(defn set-connection [session transport msg]
+  (if-let [promised-conn (get-in @session [#'cljs.repl.server/state :promised-conn])]
+    (do
+      (swap! session
+             (fn [old]
+               (-> old
+                   (assoc-in [#'cljs.repl.server/state :connection] nil)
+                   (assoc-in [#'cljs.repl.server/state :promised-conn] nil))))
+      (deliver promised-conn {:transport transport :msg msg}))
+    (swap! session (fn [old] (assoc-in old [#'cljs.repl.server/state :connection]
+                                       {:transport transport :msg msg})))))
+
 (defmethod handle-msg "result"
-  [{:keys [transport session] :as msg}]
-  (println "result"))
+  [{:keys [transport session content] :as msg}]
+  (let [browser-state (get @session #'benv/browser-state)
+        {:keys [order content]} (edn/read-string content)]
+    (benv/constrain-order order
+                          (fn []
+                            (when-let [f (:return-value-fn browser-state)]
+                              (f content))
+                            (set-connection session transport msg)))))
+
+(defmethod handle-msg "print"
+  [{:keys [transport session content] :as msg}]
+  (let [{:keys [order content]} (edn/read-string content)]
+    (benv/constrain-order order
+                          (fn []
+                            (binding [*out* (get @session #'*out*)
+                                      clojure.tools.nrepl.middleware.interruptible-eval/*msg* nil]
+                              (print content)
+                              (.flush *out*))))
+    (t/send transport (response-for msg
+                                    :status :done
+                                    :body "ignore__"))))
 
 (defmethod handle-msg :default
   [{:keys [transport path] :as msg}]
