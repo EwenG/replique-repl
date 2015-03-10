@@ -55,27 +55,38 @@
 
 (defonce compiler-env (cljs.env/default-compiler-env opts))
 
-(defonce browser-env (merge (BrowserEnv.)
-                        {:optimizations  :none
-                         :working-dir    (or (:output-dir opts)
-                                             (->> [".repl" (util/clojurescript-version)]
-                                                  (remove empty?) (string/join "-")))
-                         :serve-static   true
-                         :static-dir     (cond-> ["." "target/out/"]
-                                                 (:output-dir opts) (conj (:output-dir opts)))
-                         :preloaded-libs []
-                         :src            "src/"
-                         ::env/compiler  compiler-env
-                         :source-map     false}
-                        opts))
 
-(when (:src browser-env)
-  (repl/analyze-source (:src browser-env)))
 
-(cljs.env/with-compiler-env compiler-env
-                            (defonce preloaded-libs (atom (set (concat
-                                                             (@#'benv/always-preload browser-env)
-                                                             (map str (:preloaded-libs browser-env)))))))
+(defonce browser-env nil)
+(defonce preloaded-libs nil)
+
+
+(defn init-env! [session]
+  (let [browser-env (merge (BrowserEnv.)
+                           {:optimizations  :none
+                            :working-dir    (:output-dir opts)
+                            :serve-static   true
+                            :static-dir     (cond-> ["." "target/out/"]
+                                                    (:output-dir opts) (conj (:output-dir opts)))
+                            :preloaded-libs []
+                            :src            "src/"
+                            ::env/compiler  compiler-env
+                            :source-map     false}
+                           opts)]
+    (swap! session assoc #'browser-env browser-env)
+    (when (:src browser-env)
+      (repl/analyze-source (:src browser-env)))
+    (cljs.env/with-compiler-env
+      compiler-env
+      (swap! session assoc #'preloaded-libs (atom (set (concat
+                                                         (@#'benv/always-preload browser-env)
+                                                         (map str (:preloaded-libs browser-env)))))))
+    (when-not (get-in @session [#'benv/browser-state :client-js])
+      (cljs.env/with-compiler-env compiler-env
+                                  (swap! session assoc-in [#'benv/browser-state :client-js]
+                                         (benv/create-client-js-file
+                                           browser-env
+                                           (io/file (:working-dir browser-env) "client.js")))))))
 
 
 

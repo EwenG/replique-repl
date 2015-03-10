@@ -78,24 +78,17 @@
                                             session-links)))))
 
 
+
+
+
 (defmethod handle-msg "connect"
   [{:keys [transport session] :as msg}]
-  (when-not (get-in @session [#'benv/browser-state :client-js])
-    (cljs.env/with-compiler-env rbenv/compiler-env
-                                (swap! session assoc-in [#'benv/browser-state :client-js]
-                                       (benv/create-client-js-file
-                                         rbenv/browser-env
-                                         (io/file (:working-dir rbenv/opts) "client.js")))))
+  (rbenv/init-env! session)
   (send-repl-index msg))
 
 (defmethod handle-msg "start"
   [{:keys [transport session] :as msg}]
-  (when-not (get-in @session [#'benv/browser-state :client-js])
-    (cljs.env/with-compiler-env rbenv/compiler-env
-                                (swap! session assoc-in [#'benv/browser-state :client-js]
-                                       (benv/create-client-js-file
-                                         rbenv/browser-env
-                                         (io/file (:working-dir rbenv/opts) "client.js")))))
+  (rbenv/init-env! session)
   (send-repl-client-page msg))
 
 (defmethod handle-msg "ready"
