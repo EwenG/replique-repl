@@ -117,8 +117,8 @@
                    (assoc-in [#'cljs.repl.server/state :connection] nil)
                    (assoc-in [#'cljs.repl.server/state :promised-conn] nil))))
       (deliver promised-conn {:transport transport :msg msg}))
-    (swap! session (fn [old] (assoc-in old [#'cljs.repl.server/state :connection]
-                                       {:transport transport :msg msg})))))
+    (swap! session assoc-in [#'cljs.repl.server/state :connection]
+           {:transport transport :msg msg})))
 
 (defmethod handle-msg "result"
   [{:keys [transport session content] :as msg}]

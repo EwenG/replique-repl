@@ -14,9 +14,24 @@
            (clojure.lang LineNumberingPushbackReader)))
 
 
+(defn connection
+  [session]
+  (let [p    (promise)
+        {:keys [transport msg] :as conn} (get-in @session [#'cljs.repl.server/state :connection])]
+    (if conn
+      (do
+        (deliver p conn)
+        p)
+      (do
+        (swap! session assoc-in [#'cljs.repl.server/state :promised-conn] p)
+        p))))
 
-(defn send-for-eval []
-  )
+(defn send-for-eval [{:keys [transport msg]}]
+  (prn (str "transport " transport))
+  (prn (str "msg " msg))
+  (t/send transport (response-for msg :status :done
+                                      :body "ignore__")))
+
 
 (defonce started-cljs-session (atom #{}))
 
@@ -28,7 +43,7 @@
   [{:keys [op session transport cljs] :as msg}]
   (if (and (get @started-cljs-session (:id (meta session)))
            (= op "eval"))
-    (do (prn "e")
+    (do (send-for-eval @(connection session))
         (t/send transport (response-for msg :status :done)))
     (captured-h msg)))
 
@@ -55,7 +70,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*))))
+  (swap! started-cljs-session conj "3d68ac19-e3b8-4fbb-a7c8-da52dd6ee882")
 
   (let [session (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))]
     (with-open [conn (nrepl/connect :port 57794)]
@@ -70,5 +85,6 @@
           (nrepl/client-session :session session)
           (nrepl/message {:op "stop-cljs-repl"})
           nrepl/response-values)))
+
 
   )
