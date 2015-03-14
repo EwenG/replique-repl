@@ -9,7 +9,11 @@
             [cljs.repl.browser :as benv]))
 
 
-
+(defonce ^:dynamic browser-state
+         (atom {:return-value-fn nil
+                :client-js nil}))
+(declare ^:dynamic browser-env)
+(declare ^:dynamic preloaded-libs)
 
 
 (defn env-setup [repl-env opts]
@@ -57,9 +61,6 @@
 
 
 
-(defonce browser-env nil)
-(defonce preloaded-libs nil)
-
 
 (defn init-env! [session]
   (let [browser-env (merge (BrowserEnv.)
@@ -78,12 +79,12 @@
       (repl/analyze-source (:src browser-env)))
     (cljs.env/with-compiler-env
       compiler-env
-      (swap! session assoc #'preloaded-libs (atom (set (concat
-                                                         (@#'benv/always-preload browser-env)
-                                                         (map str (:preloaded-libs browser-env)))))))
-    (when-not (get-in @session [#'benv/browser-state :client-js])
+      (swap! session assoc #'preloaded-libs (set (concat
+                                                   (@#'benv/always-preload browser-env)
+                                                   (map str (:preloaded-libs browser-env))))))
+    (when-not (get-in @session [#'browser-state :client-js])
       (cljs.env/with-compiler-env compiler-env
-                                  (swap! session assoc-in [#'benv/browser-state :client-js]
+                                  (swap! session assoc-in [#'browser-state :client-js]
                                          (benv/create-client-js-file
                                            browser-env
                                            (io/file (:working-dir browser-env) "client.js")))))))

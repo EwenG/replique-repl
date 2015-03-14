@@ -1,5 +1,6 @@
 (ns ewen.replique.repl
   (:require [ewen.replique.browser-env :refer []]
+            [ewen.replique.server :refer []]
             [cljs.repl :as repl]
             [cljs.repl.browser :as benv]
             [clojure.tools.nrepl
@@ -17,18 +18,16 @@
 (defn connection
   [session]
   (let [p    (promise)
-        {:keys [transport msg] :as conn} (get-in @session [#'cljs.repl.server/state :connection])]
+        {:keys [transport msg] :as conn} (get-in @session [#'ewen.replique.server/state :connection])]
     (if conn
       (do
         (deliver p conn)
         p)
       (do
-        (swap! session assoc-in [#'cljs.repl.server/state :promised-conn] p)
+        (swap! session assoc-in [#'ewen.replique.server/state :promised-conn] p)
         p))))
 
 (defn send-for-eval [{:keys [transport msg]}]
-  (prn (str "transport " transport))
-  (prn (str "msg " msg))
   (t/send transport (response-for msg :status :done
                                       :body "ignore__")))
 
@@ -70,7 +69,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "3d68ac19-e3b8-4fbb-a7c8-da52dd6ee882")
+  (swap! started-cljs-session conj "3bd00a48-5423-4a65-ad76-4ed3a8f72065")
 
   (let [session (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))]
     (with-open [conn (nrepl/connect :port 57794)]
