@@ -3,6 +3,7 @@
             [ewen.replique.server :refer []]
             [cljs.repl :as repl]
             [cljs.repl.browser :as benv]
+            [cljs.env :as env]
             [clojure.tools.nrepl
              [transport :as t]
              [middleware :refer [set-descriptor!]]
@@ -64,7 +65,7 @@
                                                      {:value v
                                                       :ns (-> ana/*cljs-ns* ns-name str)})))
             ; TODO customizable exception prints
-            #_:caught #_(fn [e]
+            :caught (fn [e env opts]
                       (let [root-ex (#'clojure.main/root-cause e)]
                         (when-not (instance? ThreadDeath root-ex)
                           (reset! bindings (assoc (#'clojure.tools.nrepl.middleware.interruptible-eval/capture-thread-bindings) #'*e e))
@@ -72,7 +73,7 @@
                           (t/send transport (response-for msg {:status :eval-error
                                                                :ex (-> e class str)
                                                                :root-ex (-> root-ex class str)}))
-                          (clojure.main/repl-caught e)))))
+                          (cljs.repl/repl-caught e env opts)))))
           (finally
             (.flush ^Writer out)
             (.flush ^Writer err)))))
@@ -131,13 +132,6 @@
 (comment
 
 
-
-
-  (cljs.repl/repl (repl-env)
-                  :read (let [reader (LineNumberingPushbackReader. (StringReader. "\"e\""))]
-                          #(read reader false %2))
-                  :prompt (fn [])
-                  :need-prompt (constantly false))
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
