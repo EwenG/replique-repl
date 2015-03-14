@@ -25,7 +25,6 @@
    :return-fn (atom (fn []))}
 (declare ^:dynamic *browser-state*)
 (declare ^:dynamic browser-env)
-(declare ^:dynamic preloaded-libs)
 
 
 
@@ -214,11 +213,6 @@
 
 (defn init-env! [session env]
   (swap! session assoc #'browser-env env)
-  (cljs.env/with-compiler-env
-    compiler-env
-    (swap! session assoc #'preloaded-libs (set (concat
-                                                       (@#'benv/always-preload env)
-                                                       (map str (:preloaded-libs env))))))
   (when-not (get-in @session [#'*browser-state* :client-js])
     (cljs.env/with-compiler-env compiler-env
                                 (swap! session assoc-in [#'*browser-state* :client-js]
@@ -241,21 +235,19 @@
 
 (defmethod handle-msg "ready"
   [{:keys [transport session] :as msg}]
-  (let [preloaded-libs (get @session #'preloaded-libs)]
-    (swap! session assoc #'loaded-libs preloaded-libs)
-    (swap! session assoc #'ordering (agent {:expecting nil :fns {}}))
-    (swap! session assoc #'*state* {:socket        nil
-                                    :connection    (atom nil)
-                                    :promised-conn (atom nil)})
-    (swap! session assoc-in [#'*browser-state* :return-value-fn] (atom nil))
-    (t/send transport (response-for msg
-                                    :status :done
-                                    :headers {:Content-Type "test/javascript"}
-                                    :body
-                                    (cljs.env/with-compiler-env compiler-env
-                                                                (cljsc/-compile
-                                                                  '[(ns cljs.user)
-                                                                    (set! *print-fn* clojure.browser.repl/repl-print)] {}))))))
+  (swap! session assoc #'ordering (agent {:expecting nil :fns {}}))
+  (swap! session assoc #'*state* {:socket        nil
+                                  :connection    (atom nil)
+                                  :promised-conn (atom nil)})
+  (swap! session assoc-in [#'*browser-state* :return-value-fn] (atom nil))
+  (t/send transport (response-for msg
+                                  :status :done
+                                  :headers {:Content-Type "test/javascript"}
+                                  :body
+                                  (cljs.env/with-compiler-env compiler-env
+                                                              (cljsc/-compile
+                                                                '[(ns cljs.user)
+                                                                  (set! *print-fn* clojure.browser.repl/repl-print)] {})))))
 
 (defn set-connection [session transport msg]
   (if-let [promised-conn @(get-in @session [#'*state* :promised-conn])]
