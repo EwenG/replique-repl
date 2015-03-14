@@ -17,7 +17,7 @@
 (declare ^:dynamic ordering)
 
 #_{:socket        nil
-   :connection    nil
+   :connection    (atom nil)
    :promised-conn (atom nil)}
 (declare ^:dynamic *state*)
 
@@ -41,7 +41,7 @@
 (defn connection
   []
   (let [p    (promise)
-        {:keys [transport msg] :as conn} (:connection *state*)]
+        {:keys [transport msg] :as conn} @(:connection *state*)]
     (if conn
       (do
         (deliver p conn)
@@ -245,7 +245,7 @@
     (swap! session assoc #'loaded-libs preloaded-libs)
     (swap! session assoc #'ordering (agent {:expecting nil :fns {}}))
     (swap! session assoc #'*state* {:socket        nil
-                                    :connection    nil
+                                    :connection    (atom nil)
                                     :promised-conn (atom nil)})
     (swap! session assoc-in [#'*browser-state* :return-value-fn] (atom nil))
     (t/send transport (response-for msg
@@ -260,14 +260,13 @@
 (defn set-connection [session transport msg]
   (if-let [promised-conn @(get-in @session [#'*state* :promised-conn])]
     (do
-      (swap! session
-             (fn [old]
-               (-> old
-                   (assoc-in [#'*state* :connection] nil)
-                   (assoc-in [#'*state* :promised-conn] (atom nil)))))
+      (let [connection (get-in @session [#'*state* :connection])
+            promised-conn (get-in @session [#'*state* :promised-conn])]
+        (reset! connection nil)
+        (reset! promised-conn nil))
       (deliver promised-conn {:transport transport :msg msg}))
-    (swap! session assoc-in [#'*state* :connection]
-           {:transport transport :msg msg})))
+    (let [connection (get-in @session [#'*state* :connection])]
+      (reset! connection {:transport transport :msg msg}))))
 
 
 (defn add-in-order [{:keys [expecting fns]} order f]
