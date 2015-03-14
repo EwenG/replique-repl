@@ -48,12 +48,6 @@
         (try
           (cljs.repl/repl env
             :eval (if eval (find-var (symbol eval)) #'cljs.repl/eval-cljs)
-            ;; clojure.main/repl paves over certain vars even if they're already thread-bound
-            #_:init #_#(do (set! *compile-path* (@bindings #'*compile-path*))
-                       (set! *1 (@bindings #'*1))
-                       (set! *2 (@bindings #'*2))
-                       (set! *3 (@bindings #'*3))
-                       (set! *e (@bindings #'*e)))
             :read (if (string? code)
                     (let [reader (LineNumberingPushbackReader. (StringReader. code))]
                       #(read reader false %2))
@@ -63,10 +57,6 @@
             :need-prompt (constantly false)
             ; TODO pretty-print?
             :print (fn [v]
-                     #_(reset! bindings (assoc (capture-thread-bindings)
-                                        #'*3 *2
-                                        #'*2 *1
-                                        #'*1 v))
                      (.flush ^Writer err)
                      (.flush ^Writer out)
                      (reset! session (maybe-restore-original-ns @bindings))
@@ -87,26 +77,6 @@
             (.flush ^Writer out)
             (.flush ^Writer err)))))
     (maybe-restore-original-ns @bindings)))
-
-#_(defn cljs-repl*
-  [{:keys [op session transport cljs] :as msg}]
-  (if (and (get @started-cljs-session (:id (meta session)))
-           (= op "eval"))
-    (let [env (get @session #'ewen.replique.server/browser-env)
-          *state* (get @session #'ewen.replique.server/*state*)
-          *browser-state* (get @session #'ewen.replique.server/*browser-state*)]
-      (binding [ewen.replique.server/*state* *state*
-                ewen.replique.server/*browser-state* *browser-state*]
-        (try (prn (cljs.repl/repl env
-                                  :read (let [reader (LineNumberingPushbackReader. (StringReader. "\"e\""))]
-                                          #(read reader false %2))
-                                  :prompt (fn [])
-                                  :need-prompt (constantly false)))
-             (catch Exception e
-               (.printStackTrace e)
-               (t/send transport (response-for msg :status :done)))))
-      (t/send transport (response-for msg :status :done)))
-    (captured-h msg)))
 
 (defn cljs-repl*
   [{:keys [op session interrupt-id id transport] :as msg}]
