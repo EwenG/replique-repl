@@ -33,11 +33,14 @@
           *browser-state* (get @session #'ewen.replique.server/*browser-state*)]
       (binding [ewen.replique.server/*state* *state*
                 ewen.replique.server/*browser-state* *browser-state*]
-        (prn (cljs.repl/repl env
-                             :read (let [reader (LineNumberingPushbackReader. (StringReader. "\"e\""))]
-                                     #(read reader false %2))
-                             :prompt (fn [])
-                             :need-prompt (constantly false))))
+        (try (prn (cljs.repl/repl env
+                                  :read (let [reader (LineNumberingPushbackReader. (StringReader. "\"e\""))]
+                                          #(read reader false %2))
+                                  :prompt (fn [])
+                                  :need-prompt (constantly false)))
+             (catch Exception e
+               (.printStackTrace e)
+               (t/send transport (response-for msg :status :done)))))
       (t/send transport (response-for msg :status :done)))
     (captured-h msg)))
 
@@ -64,7 +67,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "090029d5-ff9a-4c1b-91d5-37948e6edb4e")
+  (swap! started-cljs-session conj "bcf859c4-aeef-4380-927f-43905b061e6d")
 
   (let [session (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))]
     (with-open [conn (nrepl/connect :port 57794)]
