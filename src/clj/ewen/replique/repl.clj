@@ -15,21 +15,7 @@
            (clojure.lang LineNumberingPushbackReader)))
 
 
-(defn connection
-  [session]
-  (let [p    (promise)
-        {:keys [transport msg] :as conn} (get-in @session [#'ewen.replique.server/state :connection])]
-    (if conn
-      (do
-        (deliver p conn)
-        p)
-      (do
-        (swap! session assoc-in [#'ewen.replique.server/state :promised-conn] p)
-        p))))
 
-(defn send-for-eval [{:keys [transport msg]}]
-  (t/send transport (response-for msg :status :done
-                                      :body "ignore__")))
 
 
 (defonce started-cljs-session (atom #{}))
@@ -42,8 +28,13 @@
   [{:keys [op session transport cljs] :as msg}]
   (if (and (get @started-cljs-session (:id (meta session)))
            (= op "eval"))
-    (do (send-for-eval @(connection session))
-        (t/send transport (response-for msg :status :done)))
+    (let [env (get @session #'ewen.replique.server/browser-env)
+          *state* (get @session #'ewen.replique.server/*state*)
+          *browser-state* (get @session #'ewen.replique.server/*browser-state*)]
+      (binding [ewen.replique.server/*state* *state*
+                ewen.replique.server/*browser-state* *browser-state*]
+        (prn (repl/-evaluate env nil nil "1 + 2")))
+      (t/send transport (response-for msg :status :done)))
     (captured-h msg)))
 
 (defn cljs-repl
@@ -69,7 +60,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "3bd00a48-5423-4a65-ad76-4ed3a8f72065")
+  (swap! started-cljs-session conj "bac483c9-522d-45c8-af61-94780fb8e340")
 
   (let [session (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))]
     (with-open [conn (nrepl/connect :port 57794)]

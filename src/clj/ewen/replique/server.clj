@@ -4,17 +4,143 @@
              [transport :as t]
              [middleware :refer [set-descriptor!]]
              [misc :refer [response-for]]]
+            [cljs.repl :as repl]
             [cljs.repl.browser :as benv]
+            [cljs.env :as env]
             [clojure.java.io :as io]
             [cljs.closure :as cljsc]
-            [ewen.replique.browser-env :as rbenv]
             [clojure.tools.reader.edn :as edn]))
 
 
 
 (declare ^:dynamic loaded-libs)
 (declare ^:dynamic ordering)
-(declare ^:dynamic state)
+
+#_{:socket        nil
+   :connection    nil
+   :promised-conn (atom nil)}
+(declare ^:dynamic *state*)
+
+#_{:client-js "target/out/client.js"
+   :return-fn (atom (fn []))}
+(declare ^:dynamic *browser-state*)
+(declare ^:dynamic browser-env)
+(declare ^:dynamic preloaded-libs)
+
+
+
+
+
+
+
+
+
+
+
+
+(defn connection
+  []
+  (let [p    (promise)
+        {:keys [transport msg] :as conn} (:connection *state*)]
+    (if conn
+      (do
+        (deliver p conn)
+        p)
+      (do
+        (reset! (:promised-conn *state*)  p)
+        p))))
+
+(defn set-return-value-fn
+  [f]
+  (reset! (:return-value-fn *browser-state*) f))
+
+(defn send-for-eval [{:keys [transport msg] :as conn} form return-value-fn]
+  (set-return-value-fn return-value-fn)
+  (t/send transport (response-for msg
+                                  :status :done
+                                  :body form)))
+
+
+(defn env-setup [repl-env opts]
+  (println "setup"))
+
+
+(defn env-evaluate [js]
+  (println "evaluate")
+  (let [return-value (promise)]
+    (send-for-eval @(connection)
+                   js
+                   (fn [val] (deliver return-value val)))
+    (let [ret @return-value]
+      (try
+        (read-string ret)
+        (catch Exception e
+          {:status :error
+           :value (str "Could not read return value: " ret)})))))
+
+(defn env-load [this provides url]
+  (println "load")
+  #_(benv/load-javascript this provides url))
+
+(defn env-tear-down []
+  (println "tear-down"))
+
+(defrecord BrowserEnv []
+  repl/IJavaScriptEnv
+  (-setup [this opts]
+    (env-setup this opts))
+  (-evaluate [_ _ _ js]
+    (env-evaluate js))
+  (-load [this provides url]
+    (env-load this provides url))
+  (-tear-down [_]
+    (env-tear-down)))
+
+
+
+
+
+
+
+
+
+
+
+(let [ups-deps (cljsc/get-upstream-deps (java.lang.ClassLoader/getSystemClassLoader))]
+  (defonce opts {:output-dir   "target/out"
+                 :ups-libs         (:libs ups-deps)
+                 :ups-foreign-libs (:foreign-libs ups-deps)}))
+
+(defonce compiler-env (cljs.env/default-compiler-env opts))
+
+
+
+
+(defn init-env [session]
+  (let [browser-env (merge (BrowserEnv.)
+                           {:optimizations  :none
+                            :working-dir    (:output-dir opts)
+                            :serve-static   true
+                            :static-dir     (cond-> ["." "target/out/"]
+                                                    (:output-dir opts) (conj (:output-dir opts)))
+                            :preloaded-libs []
+                            :src            "src/"
+                            ::env/compiler  compiler-env
+                            :source-map     false}
+                           opts)]
+    (when (:src browser-env)
+      (repl/analyze-source (:src browser-env)))
+    browser-env))
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -23,7 +149,7 @@
   (let [url (format "http://%s/start?session=%s"
                     (:host headers)
                     (-> (meta session) :id))
-        client-js (-> (get-in @session [#'rbenv/browser-state :client-js])
+        client-js (-> (get-in @session [#'*browser-state* :client-js])
                       slurp)]
     (t/send transport (response-for msg
                                     :status :done
@@ -48,7 +174,7 @@
   (let [url (format "http://%s?session=%s"
                     (:host headers)
                     (-> (meta session) :id))
-        client-js (-> (get-in @session [#'rbenv/browser-state :client-js])
+        client-js (-> (get-in @session [#'*browser-state* :client-js])
                       slurp)]
     (t/send transport (response-for msg
                                     :status :done
@@ -86,47 +212,61 @@
                                             session-links)))))
 
 
-
+(defn init-env! [session env]
+  (swap! session assoc #'browser-env env)
+  (cljs.env/with-compiler-env
+    compiler-env
+    (swap! session assoc #'preloaded-libs (set (concat
+                                                       (@#'benv/always-preload env)
+                                                       (map str (:preloaded-libs env))))))
+  (when-not (get-in @session [#'*browser-state* :client-js])
+    (cljs.env/with-compiler-env compiler-env
+                                (swap! session assoc-in [#'*browser-state* :client-js]
+                                       (benv/create-client-js-file
+                                         env
+                                         (io/file (:working-dir env) "client.js"))))))
 
 
 (defmethod handle-msg "connect"
   [{:keys [transport session] :as msg}]
-  (rbenv/init-env! session)
+  (let [browser-env (init-env session)]
+    (init-env! session browser-env))
   (send-repl-index msg))
 
 (defmethod handle-msg "start"
   [{:keys [transport session] :as msg}]
-  (rbenv/init-env! session)
+  (let [browser-env (init-env session)]
+    (init-env! session browser-env))
   (send-repl-client-page msg))
 
 (defmethod handle-msg "ready"
   [{:keys [transport session] :as msg}]
-  (let [preloaded-libs (get @session #'rbenv/preloaded-libs)]
+  (let [preloaded-libs (get @session #'preloaded-libs)]
     (swap! session assoc #'loaded-libs preloaded-libs)
     (swap! session assoc #'ordering (agent {:expecting nil :fns {}}))
-    (swap! session assoc #'state {:socket        nil
-                                  :connection    nil
-                                  :promised-conn nil})
-    (swap! session assoc-in [#'rbenv/browser-state :return-value-fn] nil)
+    (swap! session assoc #'*state* {:socket        nil
+                                    :connection    nil
+                                    :promised-conn (atom nil)})
+    (swap! session assoc-in [#'*browser-state* :return-value-fn] (atom nil))
     (t/send transport (response-for msg
                                     :status :done
                                     :headers {:Content-Type "test/javascript"}
                                     :body
-                                    (cljs.env/with-compiler-env rbenv/compiler-env
+                                    (cljs.env/with-compiler-env compiler-env
                                                                 (cljsc/-compile
                                                                   '[(ns cljs.user)
                                                                     (set! *print-fn* clojure.browser.repl/repl-print)] {}))))))
 
 (defn set-connection [session transport msg]
-  (if-let [promised-conn (get-in @session [#'state :promised-conn])]
+  (if-let [promised-conn @(get-in @session [#'*state* :promised-conn])]
     (do
       (swap! session
              (fn [old]
                (-> old
-                   (assoc-in [#'state :connection] nil)
-                   (assoc-in [#'state :promised-conn] nil))))
+                   (assoc-in [#'*state* :connection] nil)
+                   (assoc-in [#'*state* :promised-conn] (atom nil)))))
       (deliver promised-conn {:transport transport :msg msg}))
-    (swap! session assoc-in [#'state :connection]
+    (swap! session assoc-in [#'*state* :connection]
            {:transport transport :msg msg})))
 
 
@@ -151,19 +291,19 @@
 
 (defmethod handle-msg "result"
   [{:keys [transport session content] :as msg}]
-  (let [browser-state (get @session #'rbenv/browser-state)
+  (let [*browser-state* (get @session #'*browser-state*)
         {:keys [order content]} (edn/read-string content)
         ordering (get @session #'ordering)]
     (constrain-order ordering order
                      (fn []
-                       (when-let [f (:return-value-fn browser-state)]
+                       (when-let [f @(:return-value-fn *browser-state*)]
                          (f content))
                        (set-connection session transport msg)))))
 
 (defmethod handle-msg "print"
   [{:keys [transport session content] :as msg}]
   (let [{:keys [order content]} (edn/read-string content)]
-    (benv/constrain-order order
+    (constrain-order ordering order
                           (fn []
                             (binding [*out* (get @session #'*out*)
                                       clojure.tools.nrepl.middleware.interruptible-eval/*msg* nil]
