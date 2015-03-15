@@ -43,6 +43,7 @@
         {:keys [transport msg] :as conn} @(:connection *state*)]
     (if conn
       (do
+        (reset! (:connection *state*) nil)
         (deliver p conn)
         p)
       (do
@@ -61,11 +62,10 @@
 
 
 (defn env-setup [repl-env opts]
-  (println "setup"))
+  )
 
 
 (defn env-evaluate [js]
-  (println "evaluate")
   (let [return-value (promise)]
     (send-for-eval @(connection)
                    js
@@ -78,11 +78,9 @@
            :value (str "Could not read return value: " ret)})))))
 
 (defn env-load [this provides url]
-  (println "load")
-  #_(benv/load-javascript this provides url))
+  (env-evaluate (slurp url)))
 
-(defn env-tear-down []
-  (println "tear-down"))
+(defn env-tear-down [])
 
 (defrecord BrowserEnv []
   repl/IJavaScriptEnv
@@ -93,7 +91,23 @@
   (-load [this provides url]
     (env-load this provides url))
   (-tear-down [_]
-    (env-tear-down)))
+    (env-tear-down))
+  repl/IReplEnvOptions
+  (-repl-options [this]
+    {:repl-requires
+     '[[clojure.browser.repl]]})
+  repl/IParseStacktrace
+  (-parse-stacktrace [this st err opts]
+    (benv/parse-stacktrace this st err opts))
+  repl/IGetError
+  (-get-error [this e env opts]
+    (edn/read-string
+      (repl/evaluate-form this env "<cljs repl>"
+                          `(when ~e
+                             (pr-str
+                               {:ua-product (clojure.browser.repl/get-ua-product)
+                                :value (str ~e)
+                                :stacktrace (.-stack ~e)}))))))
 
 
 
@@ -293,7 +307,8 @@
 
 (defmethod handle-msg "print"
   [{:keys [transport session content] :as msg}]
-  (let [{:keys [order content]} (edn/read-string content)]
+  (let [{:keys [order content]} (read-string content)
+        ordering (get @session #'ordering)]
     (constrain-order ordering order
                           (fn []
                             (binding [*out* (get @session #'*out*)
