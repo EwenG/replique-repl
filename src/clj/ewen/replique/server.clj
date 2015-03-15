@@ -134,6 +134,7 @@
   (let [browser-env (merge (BrowserEnv.)
                            {:optimizations  :none
                             :working-dir    (:output-dir opts)
+                            :output-dir    (:output-dir opts)
                             :serve-static   true
                             :static-dir     (cond-> ["." "target/out/"]
                                                     (:output-dir opts) (conj (:output-dir opts)))
@@ -143,7 +144,7 @@
                             :source-map     false}
                            opts)]
     (when (:src browser-env)
-      (repl/analyze-source (:src browser-env)))
+      (repl/analyze-source (:src browser-env) opts))
     browser-env))
 
 
