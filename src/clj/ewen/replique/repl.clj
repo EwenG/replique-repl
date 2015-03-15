@@ -14,8 +14,15 @@
             [clojure.tools.nrepl.middleware.session :refer [session]]
             [clojure.tools.nrepl.middleware.load-file :refer [wrap-load-file]]
             [cljs.analyzer :as ana]
-            [cljs.analyzer.api :as ana-api])
-  (:import (java.io StringReader Writer)
+            [cljs.analyzer.api :as ana-api]
+            [clojure.tools.reader.reader-types :as readers]
+            [clojure.java.io :as io]
+            [cljs.util :as util]
+            [cljs.compiler :as comp]
+            [cljs.tagged-literals :as tags]
+            [cljs.closure :as cljsc]
+            [clojure.tools.reader :as reader])
+  (:import (java.io StringReader Writer PushbackReader FileWriter)
            (clojure.lang LineNumberingPushbackReader)))
 
 
@@ -28,6 +35,147 @@
 ;Maybe there is a better way?
 (declare captured-h)
 (declare captured-executor)
+
+(defn repl*
+  [repl-env {:keys [init need-prompt prompt flush read eval print caught reader
+                    print-no-newline source-map-inline wrap repl-requires]
+             :or   {init              #()
+                    need-prompt       #(if (readers/indexing-reader? *in*)
+                                        (== (readers/get-column-number *in*) 1)
+                                        (identity true))
+                    prompt            repl/repl-prompt
+                    flush             flush
+                    read              repl/repl-read
+                    eval              @#'cljs.repl/eval-cljs
+                    print             println
+                    caught            repl/repl-caught
+                    reader            #(readers/source-logging-push-back-reader
+                                        (PushbackReader. (io/reader *in*))
+                                        1 "NO_SOURCE_FILE")
+                    print-no-newline  print
+                    source-map-inline true
+                    repl-requires     '[[cljs.repl :refer-macros [source doc find-doc apropos dir pst]]]}
+             :as   opts}]
+  (let [repl-opts (repl/-repl-options repl-env)
+        repl-requires (into repl-requires (:repl-requires repl-opts))
+        {:keys [analyze-path repl-verbose warn-on-undeclared special-fns static-fns] :as opts
+         :or   {warn-on-undeclared true}}
+        (merge
+          {:cache-analysis true :source-map true}
+          (cljsc/add-implicit-options
+            (merge-with (fn [a b] (if (nil? b) a b))
+                        repl-opts
+                        opts
+                        {:init init
+                         :need-prompt prompt
+                         :flush flush
+                         :read read
+                         :print print
+                         :caught caught
+                         :reader reader
+                         :print-no-newline print-no-newline
+                         :source-map-inline source-map-inline})))]
+    (env/with-compiler-env
+      (or (::env/compiler repl-env) (env/default-compiler-env opts))
+      (binding [ana/*cljs-ns* 'cljs.user
+                repl/*cljs-verbose* repl-verbose
+                ana/*cljs-warnings*
+                (assoc ana/*cljs-warnings*
+                  :unprovided warn-on-undeclared
+                  :undeclared-var warn-on-undeclared
+                  :undeclared-ns warn-on-undeclared
+                  :undeclared-ns-form warn-on-undeclared)
+                ana/*cljs-static-fns* static-fns
+                repl/*repl-opts* opts]
+        ;; TODO: the follow should become dead code when the REPL is
+        ;; sufficiently enhanced to understand :cache-analysis - David
+        (let [env {:context :expr :locals {}}
+              special-fns (merge repl/default-special-fns special-fns)
+              is-special-fn? (set (keys special-fns))
+              request-prompt (Object.)
+              request-exit (Object.)
+              opts (try
+                     (if-let [merge-opts (:merge-opts (repl/-setup repl-env opts))]
+                       (merge opts merge-opts)
+                       opts)
+                     (catch Throwable e
+                       (caught e repl-env opts)
+                       opts))
+              read-eval-print
+              (fn []
+                (let [input (binding [*ns* (create-ns ana/*cljs-ns*)
+                                      reader/*data-readers* tags/*cljs-data-readers*
+                                      reader/*alias-map*
+                                      (apply merge
+                                             ((juxt :requires :require-macros)
+                                               (ana/get-namespace ana/*cljs-ns*)))]
+                              (read request-prompt request-exit))]
+                  (or ({request-exit request-exit
+                        :cljs/quit request-exit
+                        request-prompt request-prompt} input)
+                      (if (and (seq? input) (is-special-fn? (first input)))
+                        (do
+                          ((get special-fns (first input)) repl-env env input opts)
+                          (print nil))
+                        (let [value (eval repl-env env input opts)]
+                          (print value))))))]
+          (comp/with-core-cljs opts
+                               (fn []
+                                 (binding [repl/*repl-opts* opts]
+                                   (try
+                                     (init)
+                                     (when analyze-path
+                                       (repl/analyze-source analyze-path opts))
+                                     ;This makes a lot of env eval calls each time repl* is called
+                                     ;Commented out for the moment. Need to find a better solution
+                                     ;The user can still require the repl-require functions/macros by hand
+                                     #_(repl/evaluate-form repl-env env "<cljs repl>"
+                                                    (with-meta
+                                                      `(~'ns ~'cljs.user
+                                                         (:require ~@repl-requires))
+                                                      {:line 1 :column 1})
+                                                    identity opts)
+                                     (catch Throwable e
+                                       (caught e repl-env opts)))
+                                   (when-let [src (:watch opts)]
+                                     (future
+                                       (let [log-file (io/file (util/output-directory opts) "watch.log")]
+                                         (print (str "Watch compilation log available at:" log-file))
+                                         (flush)
+                                         (try
+                                           (let [log-out (FileWriter. log-file)]
+                                             (binding [*err* log-out
+                                                       *out* log-out]
+                                               (cljsc/watch src (dissoc opts :watch))))
+                                           (catch Throwable e
+                                             (caught e repl-env opts))))))
+                                   ;; let any setup async messages flush
+                                   (Thread/sleep 50)
+                                   (binding [*in* (if (true? (:source-map-inline opts))
+                                                    *in*
+                                                    (reader))]
+                                     (when (need-prompt)
+                                       (print (str "To quit, type:" :cljs/quit))
+                                       (prompt)
+                                       (flush))
+                                     (loop []
+                                       (when-not
+                                         (try
+                                           (identical? (read-eval-print) request-exit)
+                                           (catch Throwable e
+                                             (caught e repl-env opts)
+                                             nil))
+                                         (when (need-prompt)
+                                           (prompt)
+                                           (flush))
+                                         (recur))))))))
+        (repl/-tear-down repl-env)))))
+
+(defn repl
+  [repl-env & opts]
+  (assert (even? (count opts))
+          "Arguments after repl-env must be interleaved key value pairs")
+  (repl* repl-env (apply hash-map opts)))
 
 (defn evaluate
   [bindings {:keys [code ns transport session eval] :as msg}]
@@ -47,7 +195,7 @@
       (t/send transport (response-for msg {:status #{:error :namespace-not-found :done}}))
       (with-bindings @bindings
         (try
-          (cljs.repl/repl env
+          (repl env
             :eval (if eval (find-var (symbol eval)) #'cljs.repl/eval-cljs)
             :read (if (string? code)
                     (let [reader (LineNumberingPushbackReader. (StringReader. code))]
@@ -61,9 +209,10 @@
                      (.flush ^Writer err)
                      (.flush ^Writer out)
                      (reset! session (maybe-restore-original-ns @bindings))
-                     (t/send transport (response-for msg
-                                                     {:value (if (nil? v) "nil" v)
-                                                      :ns    (-> ana/*cljs-ns* str)})))
+                     (let [v (try (read-string v) (catch Exception _ v))]
+                       (t/send transport (response-for msg
+                                                       {:value v
+                                                        :ns    (-> ana/*cljs-ns* str)}))))
             ; TODO customizable exception prints
             :caught (fn [e env opts]
                       (let [root-ex (#'clojure.main/root-cause e)]
@@ -135,7 +284,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "9f751a05-f036-4f9c-9bef-d5c6bffbaac7")
+  (swap! started-cljs-session conj "0502a073-e484-4d50-975c-2a4a94c4d56d")
   (reset! started-cljs-session #{})
 
 
