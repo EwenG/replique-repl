@@ -124,7 +124,7 @@
                                  (binding [repl/*repl-opts* opts]
                                    (try
                                      (init)
-                                     (when analyze-path
+                                     #_(when analyze-path
                                        (repl/analyze-source analyze-path opts))
                                      ;This makes a lot of env eval calls each time repl* is called
                                      ;Commented out for the moment. Need to find a better solution
@@ -222,7 +222,8 @@
                           (t/send transport (response-for msg {:status :eval-error
                                                                :ex (-> e class str)
                                                                :root-ex (-> root-ex class str)}))
-                          (cljs.repl/repl-caught e env opts)))))
+                          (cljs.repl/repl-caught e env opts))))
+            :output-dir (:output-dir env))
           (finally
             (.flush ^Writer out)
             (.flush ^Writer err)))))
@@ -284,7 +285,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "01f8a3bc-9403-4254-a353-2c2b02612cba")
+  (swap! started-cljs-session conj "4ca54a2d-4a39-4131-b056-962400041493")
   (reset! started-cljs-session #{})
 
 
