@@ -9,7 +9,8 @@
             [cljs.env :as env]
             [clojure.java.io :as io]
             [cljs.closure :as cljsc]
-            [clojure.tools.reader.edn :as edn]))
+            [clojure.tools.reader.edn :as edn]
+            [cljs.analyzer :as ana]))
 
 
 
@@ -254,6 +255,7 @@
                                   :connection    (atom nil)
                                   :promised-conn (atom nil)})
   (swap! session assoc-in [#'*browser-state* :return-value-fn] (atom nil))
+  (swap! session assoc #'ana/*cljs-ns* 'cljs.user)
   (t/send transport (response-for msg
                                   :status :done
                                   :headers {:Content-Type "test/javascript"}
