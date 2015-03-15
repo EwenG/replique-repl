@@ -62,8 +62,8 @@
                      (.flush ^Writer out)
                      (reset! session (maybe-restore-original-ns @bindings))
                      (t/send transport (response-for msg
-                                                     {:value v
-                                                      :ns (-> ana/*cljs-ns* ns-name str)})))
+                                                     {:value (if (nil? v) "nil" v)
+                                                      :ns    (-> ana/*cljs-ns* str)})))
             ; TODO customizable exception prints
             :caught (fn [e env opts]
                       (let [root-ex (#'clojure.main/root-cause e)]
@@ -135,7 +135,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "9c52dbf5-499e-4af6-8d4e-c18aeb04b2e3")
+  (swap! started-cljs-session conj "9f751a05-f036-4f9c-9bef-d5c6bffbaac7")
   (reset! started-cljs-session #{})
 
 
