@@ -77,7 +77,7 @@
                          :source-map-inline source-map-inline})))]
     (env/with-compiler-env
       (or (::env/compiler repl-env) (env/default-compiler-env opts))
-      (binding [ana/*cljs-ns* 'cljs.user
+      (binding [#_ana/*cljs-ns* #_'cljs.user                ;Don't reset the cljs-ns every time repl* is called
                 repl/*cljs-verbose* repl-verbose
                 ana/*cljs-warnings*
                 (assoc ana/*cljs-warnings*
@@ -208,11 +208,11 @@
             :print (fn [v]
                      (.flush ^Writer err)
                      (.flush ^Writer out)
-                     (reset! session (maybe-restore-original-ns @bindings))
-                     (let [v (try (read-string v) (catch Exception _ v))]
-                       (t/send transport (response-for msg
-                                                       {:value v
-                                                        :ns    (-> ana/*cljs-ns* str)}))))
+                     (reset! session (-> (assoc @bindings #'ana/*cljs-ns* ana/*cljs-ns*)
+                                         maybe-restore-original-ns))
+                     (t/send transport (response-for msg
+                                                     {:value (if (nil? v) "nil" v)
+                                                      :ns    (-> ana/*cljs-ns* str)})))
             ; TODO customizable exception prints
             :caught (fn [e env opts]
                       (let [root-ex (#'clojure.main/root-cause e)]
@@ -284,7 +284,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "0502a073-e484-4d50-975c-2a4a94c4d56d")
+  (swap! started-cljs-session conj "01f8a3bc-9403-4254-a353-2c2b02612cba")
   (reset! started-cljs-session #{})
 
 
