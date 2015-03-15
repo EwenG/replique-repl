@@ -261,7 +261,8 @@
                                   (cljs.env/with-compiler-env compiler-env
                                                               (cljsc/-compile
                                                                 '[(ns cljs.user)
-                                                                  (set! *print-fn* clojure.browser.repl/repl-print)] {})))))
+                                                                  (set! *print-fn* clojure.browser.repl/repl-print)
+                                                                  (set! *print-newline* true)] {})))))
 
 (defn set-connection [session transport msg]
   (if-let [promised-conn @(get-in @session [#'*state* :promised-conn])]
