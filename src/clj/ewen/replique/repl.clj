@@ -285,7 +285,7 @@
 
   (:id (meta (:session clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
-  (swap! started-cljs-session conj "4ca54a2d-4a39-4131-b056-962400041493")
+  (swap! started-cljs-session conj "392eea8d-3e5d-45ef-8f47-9b2c9171d094")
   (reset! started-cljs-session #{})
 
 

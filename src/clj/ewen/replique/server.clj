@@ -376,4 +376,6 @@
                             "start"
                             {:doc ""}
                             "ready"
+                            {:doc ""}
+                            "replique-ls-sessions"
                             {:doc ""}}})
